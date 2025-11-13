@@ -1,40 +1,37 @@
-const express = require("express");
-const app = express();
-const server = require("http").createServer(app);
-const WebSocket = require("ws");
+import express from "express";
+import { WebSocketServer } from "ws";
+import http from "http";
 
-// Create WebSocket server
-const wss = new WebSocket.Server({ noServer: true });
+const app = express();
+const server = http.createServer(app);
+
+// Create websocket server on same HTTP server
+const wss = new WebSocketServer({ server, path: "/ws" });
 
 app.get("/", (req, res) => {
-  res.send("ESP32-CAM WebSocket relay is running.");
+  res.send("ESP32-CAM relay running.");
 });
 
-server.on("upgrade", (req, socket, head) => {
-  if (req.url === "/ws") {
-    wss.handleUpgrade(req, socket, head, ws => {
-      wss.emit("connection", ws, req);
-    });
-  } else {
-    socket.destroy();
-  }
-});
-
-// Broadcast frames to all clients
-wss.on("connection", ws => {
+// Main relay logic
+wss.on("connection", (ws) => {
   console.log("Client connected");
 
-  ws.on("message", msg => {
-    wss.clients.forEach(client => {
-      if (client.readyState === WebSocket.OPEN) {
-        client.send(msg);
+  ws.on("message", (data, isBinary) => {
+    // Relay to all viewers
+    for (const client of wss.clients) {
+      if (client !== ws && client.readyState === ws.OPEN) {
+        client.send(data, { binary: isBinary });
       }
-    });
+    }
   });
 
-  ws.on("close", () => console.log("Client disconnected"));
+  ws.on("close", () => {
+    console.log("Client disconnected");
+  });
 });
 
-// Render sets PORT in environment
-const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => console.log("Server running on " + PORT));
+// Listen on Render assigned port
+const port = process.env.PORT || 3000;
+server.listen(port, () => {
+  console.log(`Relay listening on ${port}`);
+});
