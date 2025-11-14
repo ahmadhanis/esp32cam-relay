@@ -25,6 +25,16 @@ app.get("/", (req, res) => {
 });
 
 // ----------------------
+// LIST CAMERAS (REST API)
+// ----------------------
+app.get("/cameras", (req, res) => {
+  res.json({
+    online: Array.from(cameras.keys())
+  });
+});
+
+
+// ----------------------
 // WEBSOCKET CONNECTION
 // ----------------------
 wss.on("connection", (ws) => {
