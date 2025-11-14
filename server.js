@@ -62,6 +62,7 @@ wss.on("connection", (ws) => {
       cameras.set(deviceID, ws);
 
       console.log(`Camera registered: ${deviceID}`);
+      console.log("Viewer subscribed to camera:", deviceID);
 
       // If viewers exist, tell camera to start streaming
       const viewerCount = viewers.get(deviceID)?.size || 0;
