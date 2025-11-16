@@ -5,35 +5,74 @@ import { WebSocketServer } from "ws";
 const app = express();
 const server = http.createServer(app);
 
-// WebSocket server on /ws path
-const wss = new WebSocketServer({
-  server,
-  path: "/ws"
+// Map to hold multiple WebSocket groups by deviceID
+const cameraGroups = new Map();
+
+function getGroup(id) {
+  if (!cameraGroups.has(id)) {
+    cameraGroups.set(id, new Set());
+  }
+  return cameraGroups.get(id);
+}
+
+// Parse dynamic path like /ws/DEVICEID
+const wss = new WebSocketServer({ noServer: true });
+
+server.on("upgrade", (req, socket, head) => {
+  const url = new URL(req.url, `http://${req.headers.host}`);
+
+  if (!url.pathname.startsWith("/ws/")) {
+    socket.destroy();
+    return;
+  }
+
+  const deviceID = url.pathname.split("/")[2];
+  if (!deviceID) {
+    socket.destroy();
+    return;
+  }
+
+  req.deviceID = deviceID;
+
+  wss.handleUpgrade(req, socket, head, (ws) => {
+    wss.emit("connection", ws, req);
+  });
 });
 
-app.get("/", (req, res) => {
-  res.send("ESP32-CAM WebSocket Relay Running.");
-});
+wss.on("connection", (ws, req) => {
+  const deviceID = req.deviceID;
+  const group = getGroup(deviceID);
 
-wss.on("connection", (ws) => {
-  console.log("Client connected");
+  group.add(ws);
+  console.log(`Client connected to camera ${deviceID}. Total: ${group.size}`);
 
   ws.on("message", (data, isBinary) => {
-    console.log("Forwarding frame:", isBinary ? data.byteLength : data.length);
-
-    // Broadcast to all connected clients except the sender
-    wss.clients.forEach((client) => {
+    // Forward frame ONLY to viewers of this camera
+    group.forEach((client) => {
       if (client !== ws && client.readyState === ws.OPEN) {
         client.send(data, { binary: isBinary });
       }
     });
   });
 
-  ws.on("close", () => console.log("Client disconnected"));
+  ws.on("close", () => {
+    group.delete(ws);
+    console.log(`Client disconnected from ${deviceID}. Remaining: ${group.size}`);
+
+    // Remove empty groups
+    if (group.size === 0) {
+      cameraGroups.delete(deviceID);
+      console.log(`Camera group ${deviceID} removed (empty).`);
+    }
+  });
 });
 
-// Render PORT
+app.get("/", (req, res) => {
+  res.send("Multi-Camera ESP32-CAM Relay Running.");
+});
+
+// Start server
 const port = process.env.PORT || 3000;
 server.listen(port, () => {
-  console.log("Relay server running on", port);
+  console.log("Relay running on port " + port);
 });
